@@ -1,0 +1,53 @@
+name: Import original Bindarr
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: import-original
+  cancel-in-progress: false
+
+jobs:
+  import:
+    if: github.repository == 'jimbo19922003/bindarr' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.IMPORT_TOKEN }}
+    steps:
+      - name: Check import credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo '::error::Add repository secret IMPORT_TOKEN: a fine-grained token limited to jimbo19922003/bindarr with Contents and Workflows read/write permissions.'
+            exit 1
+          fi
+          gh auth setup-git
+
+      - name: Import upstream main into a new branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          destination='https://github.com/jimbo19922003/bindarr.git'
+          git ls-remote --heads "$destination" > "$RUNNER_TEMP/destination-heads"
+          if grep -q 'refs/heads/upstream-original$' "$RUNNER_TEMP/destination-heads"; then
+            echo '::error::upstream-original already exists. Refusing to overwrite it.'
+            exit 1
+          fi
+          git clone --single-branch --branch main --no-tags https://github.com/thenotoriousJeremy/bindarr.git "$RUNNER_TEMP/original-bindarr"
+          cd "$RUNNER_TEMP/original-bindarr"
+          sha=$(git rev-parse HEAD)
+          git push --force-with-lease=refs/heads/upstream-original: "$destination" HEAD:refs/heads/upstream-original
+          {
+            echo '## Original Bindarr imported'
+            echo "Source: thenotoriousJeremy/bindarr main at $sha"
+            echo 'Destination: jimbo19922003/bindarr, branch upstream-original'
+            echo 'Full ancestry of source main preserved. Tags and other branches were not imported.'
+            echo 'Bootstrap main, bindarr-enhanced, and application databases were not changed.'
+            echo 'No deployment was requested. Review imported workflows before running them.'
+            echo 'Delete or revoke IMPORT_TOKEN after verifying the import.'
+          } >> "$GITHUB_STEP_SUMMARY"
